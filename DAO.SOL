@@ -1,0 +1,127 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+contract CryptoInvestmentDAO {
+    struct Proposal {
+        string description;  // Descrição da proposta
+        uint256 amount;      // Quantidade de ETH solicitada
+        address payable recipient; // Destinatário dos fundos
+        uint256 votesFor;    // Votos a favor
+        uint256 votesAgainst; // Votos contra
+        bool executed;       // Status de execução
+        address proposer;    // Proponente
+    }
+
+    mapping(address => uint256) public members; // Mapeia membros para seus saldos de contribuição
+    Proposal[] public proposals; // Lista de propostas
+    mapping(uint256 => mapping(address => bool)) public voted; // Rastreia quem votou em cada proposta
+
+    uint256 public totalContributions; // Total de ETH contribuído para a DAO
+    uint256 public minimumContribution; // Contribuição mínima para se tornar membro
+
+    address public owner; // Proprietário da DAO
+
+    modifier onlyMembers() {
+        require(members[msg.sender] > 0, "Somente membros podem realizar esta ação");
+        _;
+    }
+
+    modifier onlyOwner() {
+        require(msg.sender == owner, "Somente o proprietário pode realizar esta ação");
+        _;
+    }
+
+    constructor(uint256 _minimumContribution) {
+        owner = msg.sender; // Define o proprietário inicial
+        minimumContribution = _minimumContribution; // Define a contribuição mínima para entrada
+    }
+
+    // Função para se tornar membro da DAO
+    function becomeMember() external payable {
+        require(msg.value >= minimumContribution, "Contribuição insuficiente");
+        members[msg.sender] += msg.value;
+        totalContributions += msg.value;
+    }
+
+    // Criar uma nova proposta de investimento
+    function createProposal(
+        string memory _description,
+        uint256 _amount,
+        address payable _recipient
+    ) external onlyMembers {
+        require(_amount <= address(this).balance, "Solicitação acima do saldo da DAO");
+        proposals.push(Proposal({
+            description: _description,
+            amount: _amount,
+            recipient: _recipient,
+            votesFor: 0,
+            votesAgainst: 0,
+            executed: false,
+            proposer: msg.sender
+        }));
+    }
+
+    // Votar em uma proposta
+    function vote(uint256 _proposalId, bool _support) external onlyMembers {
+        require(_proposalId < proposals.length, "Proposta inválida");
+        Proposal storage proposal = proposals[_proposalId];
+        require(!voted[_proposalId][msg.sender], "Você já votou nesta proposta");
+
+        voted[_proposalId][msg.sender] = true;
+
+        if (_support) {
+            proposal.votesFor += members[msg.sender]; // Peso do voto é proporcional à contribuição
+        } else {
+            proposal.votesAgainst += members[msg.sender];
+        }
+    }
+
+    // Executar uma proposta aprovada
+    function executeProposal(uint256 _proposalId) external onlyMembers {
+        require(_proposalId < proposals.length, "Proposta inválida");
+        Proposal storage proposal = proposals[_proposalId];
+        require(!proposal.executed, "Proposta já executada");
+        require(proposal.votesFor > proposal.votesAgainst, "Proposta não aprovada");
+
+        proposal.executed = true;
+        proposal.recipient.transfer(proposal.amount);
+    }
+
+    // Retirar fundos individuais (opção de saída da DAO)
+    function withdraw() external onlyMembers {
+        uint256 balance = members[msg.sender];
+        require(balance > 0, "Nenhum saldo disponível para retirada");
+
+        members[msg.sender] = 0;
+        totalContributions -= balance;
+        payable(msg.sender).transfer(balance);
+    }
+
+    // Ver saldo da DAO
+    function getDAOBalance() external view returns (uint256) {
+        return address(this).balance;
+    }
+
+    // Ver detalhes de uma proposta
+    function getProposal(uint256 _proposalId) external view returns (
+        string memory description,
+        uint256 amount,
+        address recipient,
+        uint256 votesFor,
+        uint256 votesAgainst,
+        bool executed,
+        address proposer
+    ) {
+        require(_proposalId < proposals.length, "Proposta inválida");
+        Proposal storage proposal = proposals[_proposalId];
+        return (
+            proposal.description,
+            proposal.amount,
+            proposal.recipient,
+            proposal.votesFor,
+            proposal.votesAgainst,
+            proposal.executed,
+            proposal.proposer
+        );
+    }
+}
